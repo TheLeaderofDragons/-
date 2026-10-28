@@ -24,12 +24,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.VisibilityOff
+import com.example.ui.theme.AppIcons
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -351,7 +347,7 @@ fun CounterScreen(
                     modifier = Modifier.testTag("btn_undo_last")
                 ) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Undo,
+                        imageVector = AppIcons.Undo,
                         contentDescription = "Отменить последнее действие",
                         modifier = Modifier.size(16.dp)
                     )
@@ -506,7 +502,7 @@ fun BlindModeOverlay(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.VisibilityOff,
+                        imageVector = AppIcons.VisibilityOff,
                         contentDescription = null,
                         tint = EmeraldBright.copy(alpha = 0.7f),
                         modifier = Modifier.size(34.dp)
@@ -553,7 +549,7 @@ fun BlindModeOverlay(
                         contentColor = Color(0xFFFECDD3)
                     )
                 ) {
-                    Icon(Icons.Default.Remove, contentDescription = null)
+                    Icon(AppIcons.Remove, contentDescription = null)
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("−1 (Ошибка)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
@@ -569,7 +565,7 @@ fun BlindModeOverlay(
                         contentColor = Color(0xFFCFFAFE)
                     )
                 ) {
-                    Icon(Icons.Default.Groups, contentDescription = null)
+                    Icon(AppIcons.Groups, contentDescription = null)
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("+5 (Группа)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }

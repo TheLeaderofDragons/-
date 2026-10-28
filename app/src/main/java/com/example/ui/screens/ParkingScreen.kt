@@ -23,16 +23,11 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Stop
+import com.example.ui.theme.AppIcons
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -214,7 +209,7 @@ fun ParkingScreen(
                             .weight(1f)
                             .testTag("btn_start_parking_cam")
                     ) {
-                        Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(AppIcons.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Авто-сканер", fontWeight = FontWeight.Bold)
                     }
@@ -244,7 +239,7 @@ fun ParkingScreen(
                                 .testTag("btn_stop_parking_scanner")
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Stop,
+                                imageVector = AppIcons.Stop,
                                 contentDescription = "Остановить сканер номеров",
                                 tint = RoseDanger
                             )
@@ -408,7 +403,7 @@ fun ParkingScreen(
                             .background(MaterialTheme.colorScheme.surface)
                     ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Backspace,
+                            imageVector = AppIcons.Backspace,
                             contentDescription = "Стереть символ",
                             tint = MaterialTheme.colorScheme.onSurface
                         )
@@ -500,7 +495,7 @@ fun ParkingScreen(
                     )
                 ) {
                     Icon(
-                        imageVector = if (isCheckout) Icons.AutoMirrored.Filled.ExitToApp else Icons.Default.DirectionsCar,
+                        imageVector = if (isCheckout) Icons.AutoMirrored.Filled.ExitToApp else AppIcons.DirectionsCar,
                         contentDescription = null
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -631,7 +626,7 @@ fun ParkingScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Icon(
-                        imageVector = Icons.Default.DirectionsCar,
+                        imageVector = AppIcons.DirectionsCar,
                         contentDescription = null,
                         tint = CyanParking,
                         modifier = Modifier.size(32.dp)
@@ -758,7 +753,7 @@ private fun ParkingSessionCard(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Icon(
-                            imageVector = if (session.isCompleted) Icons.Default.CheckCircle else Icons.Default.Schedule,
+                            imageVector = if (session.isCompleted) Icons.Default.CheckCircle else AppIcons.Schedule,
                             contentDescription = null,
                             tint = if (session.isCompleted) AmberAlert else EmeraldBright,
                             modifier = Modifier.size(14.dp)
@@ -842,7 +837,7 @@ private fun ParkingSessionCard(
 
                     IconButton(onClick = onDelete) {
                         Icon(
-                            imageVector = Icons.Default.DeleteOutline,
+                            imageVector = AppIcons.DeleteOutline,
                             contentDescription = "Удалить запись",
                             tint = RoseDanger
                         )

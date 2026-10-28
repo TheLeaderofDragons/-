@@ -5,6 +5,9 @@ on:
     branches: [ "**" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-apk:
     runs-on: ubuntu-latest
@@ -18,13 +21,17 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Настройка Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Принятие лицензий Android SDK (без сбоя setup-android)
+        run: |
+          export SDK_DIR="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          mkdir -p "$SDK_DIR/licenses"
+          printf "\n24333f8a63b6825ea9c5514f83c2829b004d1fee\nd56f5187479451eabf01fb78af6dfcb131a6481e\n8933bad161af4178b1185d1a37fbf41ea5269c55" > "$SDK_DIR/licenses/android-sdk-license"
+          printf "\n84831b9409646a918e30573bab4c9c91346d8abd" > "$SDK_DIR/licenses/android-sdk-preview-license"
 
-      - name: Установка Gradle
+      - name: Установка Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.11.1'
+          gradle-version: '9.3.1'
 
       - name: Подготовка ключей отладки (.env и debug.keystore)
         run: |
@@ -38,10 +45,17 @@ jobs:
           fi
 
       - name: Сборка файла app-debug.apk
-        run: gradle assembleDebug --no-daemon
+        run: gradle assembleDebug --no-daemon -Dorg.gradle.jvmargs="-Xmx4g -Dfile.encoding=UTF-8"
 
-      - name: Готовый APK для скачивания на телефон
+      - name: Готовый APK для скачивания (в разделе Actions)
         uses: actions/upload-artifact@v4
         with:
           name: Gotoviy-APK-Schetchik-Trafika
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Публикация прямого файла app-debug.apk (в разделе Releases без ZIP)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk ./app-debug.apk
+          gh release create v1.0 ./app-debug.apk --title "Готовый APK — Счётчик трафика и проходимости" --notes "Нажмите на файл app-debug.apk ниже (в блоке Assets), чтобы сразу скачать готовый установщик без архива ZIP." --clobber || gh release upload v1.0 ./app-debug.apk --clobber || true

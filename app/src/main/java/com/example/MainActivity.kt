@@ -29,20 +29,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.CallSplit
-import androidx.compose.material.icons.automirrored.filled.VolumeOff
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.Assessment
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.DirectionsCar
-import androidx.compose.material.icons.filled.EditLocationAlt
-import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Radar
-import androidx.compose.material.icons.filled.RestartAlt
-import androidx.compose.material.icons.filled.TouchApp
-import androidx.compose.material.icons.filled.Vibration
+import com.example.ui.theme.AppIcons
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -413,7 +401,7 @@ private fun TopTelemetryHeader(
                                 modifier = Modifier.weight(1f, fill = false)
                             )
                             Icon(
-                                imageVector = Icons.Default.EditLocationAlt,
+                                imageVector = AppIcons.EditLocationAlt,
                                 contentDescription = "Изменить точку",
                                 tint = EmeraldBright,
                                 modifier = Modifier.size(16.dp)
@@ -476,7 +464,7 @@ private fun TopTelemetryHeader(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Icon(
-                            imageVector = if (uiState.timerRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            imageVector = if (uiState.timerRunning) AppIcons.Pause else Icons.Default.PlayArrow,
                             contentDescription = "Старт или пауза таймера",
                             tint = if (uiState.timerRunning) EmeraldBright else AmberAlert,
                             modifier = Modifier.size(16.dp)
@@ -529,9 +517,9 @@ private fun TopTelemetryHeader(
                     ) {
                         Icon(
                             imageVector = if (uiState.soundEnabled) {
-                                Icons.AutoMirrored.Filled.VolumeUp
+                                AppIcons.VolumeUp
                             } else {
-                                Icons.AutoMirrored.Filled.VolumeOff
+                                AppIcons.VolumeOff
                             },
                             contentDescription = "Звук клика",
                             tint = if (uiState.soundEnabled) EmeraldBright else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -544,7 +532,7 @@ private fun TopTelemetryHeader(
                         modifier = Modifier.size(34.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Vibration,
+                            imageVector = AppIcons.Vibration,
                             contentDescription = "Виброотклик",
                             tint = if (uiState.vibrateEnabled) EmeraldBright else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp)
@@ -556,7 +544,7 @@ private fun TopTelemetryHeader(
                         modifier = Modifier.size(34.dp)
                     ) {
                         Icon(
-                            imageVector = if (uiState.darkTheme) Icons.Default.DarkMode else Icons.Default.LightMode,
+                            imageVector = if (uiState.darkTheme) AppIcons.DarkMode else AppIcons.LightMode,
                             contentDescription = "Переключить тему",
                             tint = AmberAlert,
                             modifier = Modifier.size(18.dp)
@@ -576,7 +564,7 @@ private fun TopTelemetryHeader(
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.RestartAlt,
+                                imageVector = AppIcons.RestartAlt,
                                 contentDescription = null,
                                 tint = RoseDanger,
                                 modifier = Modifier.size(14.dp)
@@ -608,11 +596,11 @@ private fun BottomModeNavigationBar(
         tonalElevation = 6.dp
     ) {
         val items = listOf(
-            Triple(AppTab.COUNTER, "Счётчик", Icons.Default.TouchApp),
-            Triple(AppTab.STREAMS, "Потоки", Icons.AutoMirrored.Filled.CallSplit),
-            Triple(AppTab.SILHOUETTES, "Силуэты", Icons.Default.Radar),
-            Triple(AppTab.PARKING, "Парковка", Icons.Default.DirectionsCar),
-            Triple(AppTab.REPORT, "Отчёт", Icons.Default.Assessment)
+            Triple(AppTab.COUNTER, "Счётчик", AppIcons.TouchApp),
+            Triple(AppTab.STREAMS, "Потоки", AppIcons.CallSplit),
+            Triple(AppTab.SILHOUETTES, "Силуэты", AppIcons.Radar),
+            Triple(AppTab.PARKING, "Парковка", AppIcons.DirectionsCar),
+            Triple(AppTab.REPORT, "Отчёт", AppIcons.Assessment)
         )
 
         items.forEach { (tab, label, icon) ->

@@ -19,13 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.ScreenshotMonitor
-import androidx.compose.material.icons.filled.TableView
+import com.example.ui.theme.AppIcons
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -165,7 +159,7 @@ fun ReportScreen(
                             ),
                             modifier = Modifier.testTag("btn_clean_screenshot_mode")
                         ) {
-                            Icon(Icons.Default.ScreenshotMonitor, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(AppIcons.ScreenshotMonitor, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Чистый экран под скрин", fontWeight = FontWeight.Bold)
                         }
@@ -179,7 +173,7 @@ fun ReportScreen(
                             ),
                             modifier = Modifier.testTag("btn_share_png_report")
                         ) {
-                            Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(AppIcons.Image, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Карточка PNG", fontWeight = FontWeight.Bold)
                         }
@@ -189,7 +183,7 @@ fun ReportScreen(
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.testTag("btn_copy_report_text")
                         ) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(AppIcons.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Скопировать текст")
                         }
@@ -199,7 +193,7 @@ fun ReportScreen(
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.testTag("btn_export_csv")
                         ) {
-                            Icon(Icons.Default.TableView, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(AppIcons.TableView, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("CSV (Excel)")
                         }
@@ -518,7 +512,7 @@ fun ReportScreen(
                             ),
                             modifier = Modifier.testTag("btn_save_shift_archive")
                         ) {
-                            Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(AppIcons.Save, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Сохранить замер", fontWeight = FontWeight.Bold)
                         }
@@ -586,7 +580,7 @@ fun ReportScreen(
 
                                     IconButton(onClick = { onDeleteSavedShift(shift.id) }) {
                                         Icon(
-                                            imageVector = Icons.Default.DeleteOutline,
+                                            imageVector = AppIcons.DeleteOutline,
                                             contentDescription = "Удалить из архива",
                                             tint = RoseDanger
                                         )

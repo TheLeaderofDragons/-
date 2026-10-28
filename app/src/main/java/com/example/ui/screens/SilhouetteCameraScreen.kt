@@ -21,12 +21,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Cameraswitch
-import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Radar
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Videocam
+import com.example.ui.theme.AppIcons
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -123,7 +119,7 @@ fun SilhouetteCameraScreen(
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Radar,
+                            imageVector = AppIcons.Radar,
                             contentDescription = null,
                             tint = EmeraldBright
                         )
@@ -176,7 +172,7 @@ fun SilhouetteCameraScreen(
                             .weight(1f)
                             .testTag("btn_start_silhouette_cam")
                     ) {
-                        Icon(Icons.Default.Videocam, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(AppIcons.Videocam, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Камера", fontWeight = FontWeight.Bold)
                     }
@@ -204,7 +200,7 @@ fun SilhouetteCameraScreen(
                             .background(MaterialTheme.colorScheme.surface)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Cameraswitch,
+                            imageVector = AppIcons.Cameraswitch,
                             contentDescription = "Повернуть камеру",
                             tint = MaterialTheme.colorScheme.onSurface
                         )
@@ -219,7 +215,7 @@ fun SilhouetteCameraScreen(
                                 .testTag("btn_stop_silhouette_cam")
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Stop,
+                                imageVector = AppIcons.Stop,
                                 contentDescription = "Остановить радар",
                                 tint = RoseDanger
                             )
@@ -408,7 +404,7 @@ fun SilhouetteCameraScreen(
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.testTag("btn_clear_silhouette_memory")
                     ) {
-                        Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(AppIcons.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Очистить", style = MaterialTheme.typography.labelMedium)
                     }
