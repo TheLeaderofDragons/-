@@ -1,0 +1,10 @@
+{
+  "name": "Счётчик трафика и проходимости",
+  "description": "Полевой счётчик пешеходного трафика с ИИ-детектором дальних силуэтов (память 1.5 ч) и учётом времени стоянки авто по госномерам (память до 24 ч).",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

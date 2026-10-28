@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">Счётчик трафика и проходимости</string>
+    <string name="default_location_name">Точка №1 (Трафик и Парковка)</string>
+    <string name="tab_counter">Счётчик</string>
+    <string name="tab_streams">Потоки</string>
+    <string name="tab_silhouettes">Силуэты</string>
+    <string name="tab_parking">Парковка</string>
+    <string name="tab_report">Отчёт</string>
+    <string name="blind_mode_title">Режим «Вслепую» (весь экран = +1)</string>
+    <string name="blind_mode_subtitle">Нажимайте в любое место экрана, не глядя на смартфон</string>
+    <string name="btn_exit">Выйти</string>
+    <string name="btn_reset">Сброс</string>
+    <string name="btn_undo">Отменить</string>
+    <string name="parking_scanner_title">Учёт номеров и времени стоянки (Память до 24 ч)</string>
+    <string name="silhouette_scanner_title">ИИ-детектор силуэтов вдали и вблизи (Память 1.5 ч)</string>
+</resources>

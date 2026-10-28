@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Emerald Radar Corner Brackets -->
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M26,28h14v4h-10v10h-4zM68,28h14v14h-4v-10h-10zM26,66h4v10h10v4h-14zM78,66h4v14h-14v-4h10z" />
+    <!-- Walking Pedestrian Silhouette -->
+    <path
+        android:fillColor="#34D399"
+        android:pathData="M50,33a5.5,5.5 0,1 1,0 11a5.5,5.5 0,1 1,0 -11zM44,47h12c2.2,0 4,1.8 4,4v11h-3.5v13h-4v-11h-3v11h-4v-13h-3.5v-11c0,-2.2 1.8,-4 4,-4z" />
+    <!-- Cyan Parking Plate Badge -->
+    <path
+        android:fillColor="#06B6D4"
+        android:pathData="M56,63h20c1.6,0 3,1.4 3,3v7c0,1.6 -1.4,3 -3,3h-20c-1.6,0 -3,-1.4 -3,-3v-7c0,-1.6 1.4,-3 3,-3z" />
+    <path
+        android:fillColor="#0B1120"
+        android:pathData="M59,67h9v5h-9zM70,67h6v5h-6z" />
+</vector>
