@@ -124,6 +124,7 @@ class TrafficViewModel(
 ) : AndroidViewModel(application) {
 
     private val silhouetteEngine = SilhouetteRadarEngine()
+    private val isAnalyzingCameraFrame = java.util.concurrent.atomic.AtomicBoolean(false)
     private var simLoopJob: Job? = null
     private var parkingSimJob: Job? = null
     private var nextPersonSeq = 1
@@ -507,6 +508,7 @@ class TrafficViewModel(
     fun clearSilhouetteMemoryBank() {
         viewModelScope.launch {
             repository.clearAllSilhouettes()
+            silhouetteEngine.clearInternalMemory()
             silhouetteEngine.resetTracks()
             repository.setCameraSkippedRepeats(0)
             _uiState.update {
@@ -522,23 +524,28 @@ class TrafficViewModel(
     fun onRealCameraRgbFrame(rGrid: IntArray, gGrid: IntArray, bGrid: IntArray) {
         val state = _uiState.value
         if (!state.camRunning || state.camSimMode) return
+        if (!isAnalyzingCameraFrame.compareAndSet(false, true)) return
         viewModelScope.launch(Dispatchers.Default) {
-            val result = silhouetteEngine.analyzeCameraRgbGrid(
-                rGrid = rGrid,
-                gGrid = gGrid,
-                bGrid = bGrid,
-                sensitivity = state.camSensitivity,
-                farHorizonBoost = state.camFarHorizonBoost,
-                stepFilterEnabled = state.camStepFilter,
-                stationaryLineMode = state.camStationaryLineMode,
-                lineVertical = state.camLineVertical,
-                linePos = state.camLinePos,
-                memoryMinutes = state.silhouetteMemoryMinutes,
-                currentMemory = silhouettesMemory.value,
-                nextPersonIdProvider = { nextPersonSeq++ }
-            )
-            withContext(Dispatchers.Main) {
-                applySilhouetteFrameResult(result)
+            try {
+                val result = silhouetteEngine.analyzeCameraRgbGrid(
+                    rGrid = rGrid,
+                    gGrid = gGrid,
+                    bGrid = bGrid,
+                    sensitivity = state.camSensitivity,
+                    farHorizonBoost = state.camFarHorizonBoost,
+                    stepFilterEnabled = state.camStepFilter,
+                    stationaryLineMode = state.camStationaryLineMode,
+                    lineVertical = state.camLineVertical,
+                    linePos = state.camLinePos,
+                    memoryMinutes = state.silhouetteMemoryMinutes,
+                    currentMemory = silhouettesMemory.value,
+                    nextPersonIdProvider = { nextPersonSeq++ }
+                )
+                withContext(Dispatchers.Main) {
+                    applySilhouetteFrameResult(result)
+                }
+            } finally {
+                isAnalyzingCameraFrame.set(false)
             }
         }
     }
@@ -869,6 +876,7 @@ class TrafficViewModel(
             repository.setElapsedSeconds(0L)
             repository.resetSessionStartTs()
             repository.setCameraSkippedRepeats(0)
+            silhouetteEngine.clearInternalMemory()
             silhouetteEngine.resetTracks()
 
             val resetCats = _uiState.value.streamCategories.map { it.copy(count = 0) }

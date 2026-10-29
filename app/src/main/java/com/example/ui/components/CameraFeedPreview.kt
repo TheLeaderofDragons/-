@@ -150,7 +150,7 @@ fun CameraFeedPreview(
                 imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy ->
                     frameSkip++
                     if (frameSkip % 2 == 0) {
-                        extractDownsampledGrids(imageProxy, onRgbAndLumaFrame)
+                        extractDownsampledGrids(imageProxy, useFrontLens, onRgbAndLumaFrame)
                     }
                     imageProxy.close()
                 }
@@ -190,6 +190,7 @@ fun CameraFeedPreview(
 
 private fun extractDownsampledGrids(
     image: ImageProxy,
+    useFrontLens: Boolean,
     onResult: (rGrid: IntArray, gGrid: IntArray, bGrid: IntArray, lumaGrid: IntArray) -> Unit
 ) {
     try {
@@ -209,6 +210,7 @@ private fun extractDownsampledGrids(
 
         val srcW = image.width
         val srcH = image.height
+        val rotation = image.imageInfo.rotationDegrees
         val gw = SilhouetteRadarEngine.GRID_W
         val gh = SilhouetteRadarEngine.GRID_H
 
@@ -217,21 +219,46 @@ private fun extractDownsampledGrids(
         val bGrid = IntArray(gw * gh)
         val lumaGrid = IntArray(gw * gh)
 
-        for (gy in 0 until gh) {
-            val sy = (gy * srcH) / gh
-            val yRowOffset = sy * yRowStride
-            val uvRowOffset = (sy shr 1) * uvRowStride
+        val yLimit = yBuffer.limit()
+        val uLimit = uBuffer?.limit() ?: 0
+        val vLimit = vBuffer?.limit() ?: 0
 
+        for (gy in 0 until gh) {
+            val normY = (gy + 0.5f) / gh.toFloat()
             for (gx in 0 until gw) {
-                val sx = (gx * srcW) / gw
-                val yIdx = yRowOffset + sx * yPixelStride
-                val yVal = if (yIdx < yBuffer.limit()) (yBuffer.get(yIdx).toInt() and 0xFF) else 128
+                val rawNormX = (gx + 0.5f) / gw.toFloat()
+                val normX = if (useFrontLens) (1f - rawNormX) else rawNormX
+
+                // Map upright screen coordinates (normX, normY) to raw sensor coordinates (sx, sy)
+                val sx: Int
+                val sy: Int
+                when (rotation) {
+                    90 -> {
+                        sx = ((normY) * (srcW - 1)).toInt().coerceIn(0, srcW - 1)
+                        sy = ((1f - normX) * (srcH - 1)).toInt().coerceIn(0, srcH - 1)
+                    }
+                    180 -> {
+                        sx = ((1f - normX) * (srcW - 1)).toInt().coerceIn(0, srcW - 1)
+                        sy = ((1f - normY) * (srcH - 1)).toInt().coerceIn(0, srcH - 1)
+                    }
+                    270 -> {
+                        sx = ((1f - normY) * (srcW - 1)).toInt().coerceIn(0, srcW - 1)
+                        sy = ((normX) * (srcH - 1)).toInt().coerceIn(0, srcH - 1)
+                    }
+                    else -> {
+                        sx = (normX * (srcW - 1)).toInt().coerceIn(0, srcW - 1)
+                        sy = (normY * (srcH - 1)).toInt().coerceIn(0, srcH - 1)
+                    }
+                }
+
+                val yIdx = sy * yRowStride + sx * yPixelStride
+                val yVal = if (yIdx in 0 until yLimit) (yBuffer.get(yIdx).toInt() and 0xFF) else 128
 
                 var uVal = 128
                 var vVal = 128
                 if (uBuffer != null && vBuffer != null) {
-                    val uvIdx = uvRowOffset + (sx shr 1) * uvPixelStride
-                    if (uvIdx < uBuffer.limit() && uvIdx < vBuffer.limit()) {
+                    val uvIdx = (sy shr 1) * uvRowStride + (sx shr 1) * uvPixelStride
+                    if (uvIdx in 0 until uLimit && uvIdx in 0 until vLimit) {
                         uVal = uBuffer.get(uvIdx).toInt() and 0xFF
                         vVal = vBuffer.get(uvIdx).toInt() and 0xFF
                     }
