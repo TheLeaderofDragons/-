@@ -481,17 +481,20 @@ private fun TopTelemetryHeader(
             ) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f, fill = false)
                 ) {
                     Surface(
                         color = EmeraldPrimary.copy(alpha = 0.12f),
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
-                            text = "🚶 Память: ${uiState.silhouetteMemoryMinutes} мин",
+                            text = "🚶 Память: ${uiState.silhouetteMemoryMinutes}м",
                             style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp),
                             color = EmeraldBright,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
                         )
                     }
                     Surface(
@@ -499,21 +502,23 @@ private fun TopTelemetryHeader(
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
-                            text = "🚗 Авто: ${uiState.parkingMemoryHours} ч",
+                            text = "🚗 ${uiState.parkingMemoryHours}ч",
                             style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp),
                             color = CyanBright,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
                         )
                     }
                 }
 
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
                         onClick = onToggleSound,
-                        modifier = Modifier.size(34.dp)
+                        modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
                             imageVector = if (uiState.soundEnabled) {
@@ -529,7 +534,7 @@ private fun TopTelemetryHeader(
 
                     IconButton(
                         onClick = onToggleVibrate,
-                        modifier = Modifier.size(34.dp)
+                        modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
                             imageVector = AppIcons.Vibration,
@@ -541,7 +546,7 @@ private fun TopTelemetryHeader(
 
                     IconButton(
                         onClick = onToggleTheme,
-                        modifier = Modifier.size(34.dp)
+                        modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
                             imageVector = if (uiState.darkTheme) AppIcons.DarkMode else AppIcons.LightMode,
@@ -559,7 +564,7 @@ private fun TopTelemetryHeader(
                         modifier = Modifier.testTag("btn_open_reset_modal")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
@@ -573,7 +578,9 @@ private fun TopTelemetryHeader(
                                 text = "Сброс",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = RoseDanger,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }

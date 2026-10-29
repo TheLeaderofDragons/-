@@ -146,12 +146,8 @@ fun CameraFeedPreview(
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
 
-                var frameSkip = 0
                 imageAnalysis.setAnalyzer(analysisExecutor) { imageProxy ->
-                    frameSkip++
-                    if (frameSkip % 2 == 0) {
-                        extractDownsampledGrids(imageProxy, useFrontLens, onRgbAndLumaFrame)
-                    }
+                    extractDownsampledGrids(imageProxy, useFrontLens, onRgbAndLumaFrame)
                     imageProxy.close()
                 }
 

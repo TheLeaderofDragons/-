@@ -104,4 +104,86 @@ class ExampleUnitTest {
         // Must never count a cat/pet on the floor as a person
         assertEquals(0, totalFalseCounts)
     }
+
+    @Test
+    fun silhouetteRadar_countsDistantAndStairPedestrianAsStrictlyOneEach() {
+        val engine = SilhouetteRadarEngine()
+        val gw = SilhouetteRadarEngine.GRID_W
+        val gh = SilhouetteRadarEngine.GRID_H
+        val memory = mutableListOf<SilhouetteMemoryEntity>()
+        var nextId = 1
+        var totalCounted = 0
+
+        // Frame 0: clean background
+        val bgR = IntArray(gw * gh) { 40 }
+        val bgG = IntArray(gw * gh) { 42 }
+        val bgB = IntArray(gw * gh) { 48 }
+        engine.analyzeCameraRgbGrid(
+            rGrid = bgR,
+            gGrid = bgG,
+            bGrid = bgB,
+            sensitivity = 85,
+            farHorizonBoost = true,
+            stepFilterEnabled = true,
+            stationaryLineMode = false,
+            lineVertical = true,
+            linePos = 0.5f,
+            memoryMinutes = 90,
+            currentMemory = memory,
+            nextPersonIdProvider = { nextId++ }
+        )
+
+        // Frames 1..6:
+        // (A) Distant person at y=22..26 (5 rows tall, 2 cols wide) walking slowly across the horizon
+        // (B) Man walking up stairs at x=90..102, y=30..68 split by 2 stair railing gaps at y=40..41 and y=53..54
+        for (frame in 1..6) {
+            val rGrid = IntArray(gw * gh) { 40 }
+            val gGrid = IntArray(gw * gh) { 42 }
+            val bGrid = IntArray(gw * gh) { 48 }
+
+            // (A) Distant walker
+            val farX = 30 + frame
+            for (y in 22..26) {
+                for (x in farX..(farX + 1)) {
+                    val idx = y * gw + x
+                    rGrid[idx] = 165
+                    gGrid[idx] = 175
+                    bGrid[idx] = 185
+                }
+            }
+
+            // (B) Approaching man on stairs split by railings into 3 vertical segments
+            val nearX = 90 + frame
+            for (y in 30..68) {
+                if (y in 40..41 || y in 53..54) continue // Stair railing occlusion bars
+                val halfW = if (y < 38) 3 else 5
+                for (x in (nearX - halfW)..(nearX + halfW)) {
+                    val idx = y * gw + x
+                    rGrid[idx] = 150
+                    gGrid[idx] = 160
+                    bGrid[idx] = 175
+                }
+            }
+
+            val res = engine.analyzeCameraRgbGrid(
+                rGrid = rGrid,
+                gGrid = gGrid,
+                bGrid = bGrid,
+                sensitivity = 85,
+                farHorizonBoost = true,
+                stepFilterEnabled = true,
+                stationaryLineMode = false,
+                lineVertical = true,
+                linePos = 0.5f,
+                memoryMinutes = 90,
+                currentMemory = memory,
+                nextPersonIdProvider = { nextId++ }
+            )
+            memory.addAll(res.newlyCounted)
+            totalCounted += res.newlyCounted.size
+        }
+
+        // Exactly 2 people (1 in the distance + 1 on the stairs, never +3 for the stair fragments!)
+        assertEquals(2, totalCounted)
+    }
 }

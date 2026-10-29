@@ -159,7 +159,7 @@ abstract class TrafficDatabase : RoomDatabase() {
                     context.applicationContext,
                     TrafficDatabase::class.java,
                     "traffic_counter_field_db"
-                ).fallbackToDestructiveMigration().build()
+                ).fallbackToDestructiveMigration(true).build()
                 INSTANCE = instance
                 instance
             }

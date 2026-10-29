@@ -164,6 +164,7 @@ fun SilhouetteCameraScreen(
                     Button(
                         onClick = onStartRealCamera,
                         shape = RoundedCornerShape(12.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = EmeraldPrimary,
                             contentColor = Color(0xFF022C22)
@@ -173,13 +174,20 @@ fun SilhouetteCameraScreen(
                             .testTag("btn_start_silhouette_cam")
                     ) {
                         Icon(AppIcons.Videocam, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Камера", fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            text = "Камера",
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
                     Button(
                         onClick = onStartSimulation,
                         shape = RoundedCornerShape(12.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 10.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = CyanParking,
                             contentColor = Color(0xFF042F2E)
@@ -190,7 +198,13 @@ fun SilhouetteCameraScreen(
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Демо-улица", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "Демо-улица",
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
                     IconButton(
