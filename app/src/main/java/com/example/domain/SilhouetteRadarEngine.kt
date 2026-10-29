@@ -37,7 +37,7 @@ data class SilhouetteDescriptor(
     val midAccentB: Int,
     val headLuma: Int,
     val shoeLuma: Int,
-    val aspectRatio: Float,
+    val aspectRatio: Float, // Pose-invariant core torso width-to-height ratio
     val shoulderToHipRatio: Float,
     val isFarHorizon: Boolean
 )
@@ -51,25 +51,14 @@ data class FrameAnalysisResult(
 )
 
 /**
- * Multi-Scale Human Silhouette Detector (Far Horizon 2.5x + Mid + Close-Up) & 5-Zone Biometric/Clothing Re-ID Engine.
+ * Multi-Scale Human Silhouette Detector & Pose-Invariant 5-Zone Biometric/Clothing Re-ID Engine.
  *
- * Designed for real outdoor/twilight and indoor field surveys:
- * 1. Handheld Motion Compensation (bestDx, bestDy alignment):
- *    - Compensates for natural hand micro-sway so holding the phone does NOT lock up in "Стабилизация поворота руки".
- *    - Only pauses on rapid full-frame camera turns.
- * 2. Multi-Scale Silhouette Segmentation (Far 3.2%..22%, Mid 22%..55%, Close 55%..95%):
- *    - Combines motion/background difference with bilateral horizontal silhouette contrast so both distant pedestrians
- *      under streetlights and close-up pedestrians walking toward the camera are captured.
- * 3. Vertical Body Bridging & Non-Maximum Suppression (NMS):
- *    - Reconstructs a single human figure even when split by stair railings, belts, or carried bags,
- *      preventing a single approaching person from ever triggering +2 or +3 at once.
- * 4. Perspective Floor Anti-Pet Filter:
- *    - Small moving floor objects (bottomNorm > 0.65 and height < 22%, or quadruped width/height > 0.60)
- *      such as cats/dogs are strictly rejected.
- * 5. Two-Tier 5-Zone Clothing + Figure Proportion Re-ID (90-Min Memory):
- *    - Short-term spatial-scale lock guarantees 1 person in view = strictly +1.
- *    - Long-term 5-zone (Head/Shoulders/Mid-Torso-Bag/Legs/Shoes) + body build (aspect & shoulder-to-hip ratio)
- *      matching remembers counted people without confusing different people in similar dark jackets.
+ * Specifically engineered to eliminate false positives from:
+ * - Cast shadows & camera Auto-Exposure shifts (затенения и скачки автоэкспозиции),
+ * - Window frames, curtain folds, & door edges (оконные рамки, изгибы штор, косяки),
+ * - TV stand legs, chairs, & furniture (ножки телевизора, столы, мебель),
+ * - Floor pets such as cats/dogs (кошки и мелкие объекты на полу),
+ * - Multi-counting a single person walking back and forth in a room or up stairs behind railings.
  */
 class SilhouetteRadarEngine {
 
@@ -81,10 +70,13 @@ class SilhouetteRadarEngine {
 
     private var prevLumaGrid: IntArray? = null
     private var bgLumaModel: FloatArray? = null
+    private var bgRModel: FloatArray? = null
+    private var bgGModel: FloatArray? = null
+    private var bgBModel: FloatArray? = null
     private var lastShakeTimestamp: Long = 0L
     private var nextTrackSeq = 1
 
-    // Synchronous internal cache so newly counted silhouettes are immediately known on the very next frame
+    // Synchronous internal cache so newly counted silhouettes are immediately known on the next frame
     private val internalMemoryCache = mutableListOf<SilhouetteMemoryEntity>()
 
     private data class RecentCountZone(
@@ -94,7 +86,7 @@ class SilhouetteRadarEngine {
         var bw: Float,
         var bh: Float,
         val isFarHorizon: Boolean,
-        val descriptor: SilhouetteDescriptor,
+        var descriptor: SilhouetteDescriptor,
         var timestamp: Long
     )
 
@@ -167,6 +159,9 @@ class SilhouetteRadarEngine {
         activeTracks.clear()
         prevLumaGrid = null
         bgLumaModel = null
+        bgRModel = null
+        bgGModel = null
+        bgBModel = null
         simPedestrians.clear()
         recentCountZones.clear()
     }
@@ -324,9 +319,8 @@ class SilhouetteRadarEngine {
 
     /**
      * Analyzes a real upright camera frame downsampled to 160x90 RGB/Luma grid.
-     * Supports distant horizon pedestrians (from 3.3% screen height), mid-range pedestrians,
-     * and close-up pedestrians (up to 95% screen height), while filtering out floor pets (cats/dogs),
-     * furniture, and preventing multi-counting (+3) on stairs/railings.
+     * Filters out cast shadows (затенения), window frames (оконные рамки), curtain folds (изгибы штор),
+     * TV stand legs (ножки телевизора), and floor pets (кошки).
      */
     @Synchronized
     fun analyzeCameraRgbGrid(
@@ -350,9 +344,15 @@ class SilhouetteRadarEngine {
 
         val prev = prevLumaGrid
         val bg = bgLumaModel
-        if (prev == null || bg == null) {
+        val bgR = bgRModel
+        val bgG = bgGModel
+        val bgB = bgBModel
+        if (prev == null || bg == null || bgR == null || bgG == null || bgB == null) {
             prevLumaGrid = curLuma
             bgLumaModel = FloatArray(GRID_W * GRID_H) { curLuma[it].toFloat() }
+            bgRModel = FloatArray(GRID_W * GRID_H) { rGrid[it].toFloat() }
+            bgGModel = FloatArray(GRID_W * GRID_H) { gGrid[it].toFloat() }
+            bgBModel = FloatArray(GRID_W * GRID_H) { bGrid[it].toFloat() }
             return FrameAnalysisResult(
                 boxes = emptyList(),
                 isShakingOrPanning = false,
@@ -363,8 +363,6 @@ class SilhouetteRadarEngine {
         }
 
         // Step 1: Global camera motion estimation (dx, dy) in [-6..+6, -4..+4]
-        // First measure zero-shift SAD (dx=0, dy=0). If the background is already stable (zeroShiftSad <= 14),
-        // keep (bestDx=0, bestDy=0) so the motion estimator NEVER locks onto a walking pedestrian!
         var zeroShiftSad = 0
         var zeroSamples = 0
         for (y in 8 until GRID_H - 10 step 5) {
@@ -398,7 +396,6 @@ class SilhouetteRadarEngine {
                         y += 5
                     }
                     val avgSad = if (samples > 0) sad / samples else 999
-                    // Only accept a non-zero camera shift if it reduces global SAD by at least 30%
                     if (avgSad < (avgZeroShiftSad * 0.70f).toInt() && avgSad < minSad) {
                         minSad = avgSad
                         bestDx = dx
@@ -408,23 +405,40 @@ class SilhouetteRadarEngine {
             }
         }
 
-        // Measure how much of the scene changed AFTER compensating for handheld micro-shift (bestDx, bestDy)
+        // Step 1B: Global Auto-Exposure / Illumination Shift Estimation
+        // When a person walks near a window/lamp, the phone camera adjusts overall exposure by +/- 5..18 luma.
+        // Subtracting globalBgExposureDelta prevents stationary walls, curtains, and window frames from lighting up!
+        var bgDeltaSum = 0
+        var prevDeltaSum = 0
+        var exposureSamples = 0
         var alignedChangedBlocks = 0
         var alignedTotalBlocks = 0
+
         for (y in 8 until GRID_H - 10 step 4) {
             for (x in 8 until GRID_W - 8 step 4) {
+                val idx = y * GRID_W + x
                 val py = (y + bestDy).coerceIn(0, GRID_H - 1)
                 val px = (x + bestDx).coerceIn(0, GRID_W - 1)
-                val d = abs(curLuma[y * GRID_W + x] - prev[py * GRID_W + px])
+                val alignIdx = py * GRID_W + px
+
+                val diffPrev = curLuma[idx] - prev[alignIdx]
+                val diffBg = curLuma[idx] - bg[alignIdx].roundToInt()
+
+                if (abs(diffBg) <= 24) {
+                    bgDeltaSum += diffBg
+                    prevDeltaSum += diffPrev
+                    exposureSamples++
+                }
                 alignedTotalBlocks++
-                if (d >= 18) alignedChangedBlocks++
+                if (abs(diffPrev) >= 18) alignedChangedBlocks++
             }
         }
+
+        val globalBgExposureDelta = if (exposureSamples >= 12) (bgDeltaSum / exposureSamples).coerceIn(-18, 18) else 0
+        val globalPrevExposureDelta = if (exposureSamples >= 12) (prevDeltaSum / exposureSamples).coerceIn(-15, 15) else 0
         val alignedChangeFraction = alignedChangedBlocks.toFloat() / max(1, alignedTotalBlocks).toFloat()
         val now = System.currentTimeMillis()
 
-        // Only declare true camera panning when the phone is being rapidly turned/swept across the scene,
-        // NOT during normal handheld aiming or when a person walks close to the lens!
         val panSadLimit = if (stepFilterEnabled) 22 else 27
         val isCameraTurningFast =
             minSad > panSadLimit ||
@@ -436,6 +450,9 @@ class SilhouetteRadarEngine {
             lastShakeTimestamp = now
             for (i in curLuma.indices) {
                 bg[i] = bg[i] * 0.35f + curLuma[i].toFloat() * 0.65f
+                bgR[i] = bgR[i] * 0.35f + rGrid[i].toFloat() * 0.65f
+                bgG[i] = bgG[i] * 0.35f + gGrid[i].toFloat() * 0.65f
+                bgB[i] = bgB[i] * 0.35f + bGrid[i].toFloat() * 0.65f
             }
             activeTracks.removeAll { it.countedPersonId == null && it.matchedKnownId == null && it.hits <= 1 }
             prevLumaGrid = curLuma
@@ -450,21 +467,19 @@ class SilhouetteRadarEngine {
 
         val isShaking = (now - lastShakeTimestamp) < 180L
 
-        // Step 2: Multi-Scale Foreground & Silhouette Contrast Segmentation
+        // Step 2: Shadow-Immune & Static-Edge-Suppressed Silhouette Segmentation
         val fgMask = BooleanArray(GRID_W * GRID_H)
         val motionMask = BooleanArray(GRID_W * GRID_H)
 
-        // Sensitivity 35..98 maps to background threshold 23..10 (far horizon 17..7)
-        val baseBgThresh = max(10, (26 - (sensitivity / 100f) * 15f).roundToInt())
-        val horizonBgThresh = if (farHorizonBoost) max(7, (baseBgThresh * 0.72f).roundToInt()) else baseBgThresh
+        val baseBgThresh = max(12, (28 - (sensitivity / 100f) * 15f).roundToInt())
+        val horizonBgThresh = if (farHorizonBoost) max(9, (baseBgThresh * 0.76f).roundToInt()) else baseBgThresh
         val bottomIgnoreRow = if (stepFilterEnabled) (GRID_H * 0.93f).toInt() else GRID_H - 2
 
         for (y in 3 until bottomIgnoreRow) {
             val py = (y + bestDy).coerceIn(1, GRID_H - 2)
             val isHorizonRow = y in 6..58
             val activeBgThresh = if (isHorizonRow) horizonBgThresh else baseBgThresh
-            val minMotionDiff = if (isHorizonRow && farHorizonBoost) 4 else 6
-            val minEdgeContrast = if (isHorizonRow && farHorizonBoost) 8 else 12
+            val minMotionDiff = if (isHorizonRow && farHorizonBoost) 5 else 7
 
             for (x in 3 until GRID_W - 3) {
                 val px = (x + bestDx).coerceIn(1, GRID_W - 2)
@@ -472,29 +487,44 @@ class SilhouetteRadarEngine {
                 val alignIdx = py * GRID_W + px
 
                 val curVal = curLuma[idx]
-                val prevVal = prev[alignIdx]
-                val bgVal = bg[alignIdx].roundToInt()
+                val prevVal = prev[alignIdx] + globalPrevExposureDelta
+                val bgVal = bg[alignIdx].roundToInt() + globalBgExposureDelta
 
-                val frameDiff = abs(curVal - prevVal)
-                val bgDiff = abs(curVal - bgVal)
+                // Measure permanent background spatial edge gradient at (px, py):
+                // Window frames, curtain folds, and TV stand legs have high permanent bgEdgeGrad!
+                // Penalizing diffs by bgEdgeGrad * 0.45f stops 1-pixel hand jitter from triggering static edges!
+                val bgGradX = abs(bg[py * GRID_W + min(GRID_W - 1, px + 1)] - bg[py * GRID_W + max(0, px - 1)]).roundToInt()
+                val bgGradY = abs(bg[min(GRID_H - 1, py + 1) * GRID_W + px] - bg[max(0, py - 1) * GRID_W + px]).roundToInt()
+                val staticEdgePenalty = (max(bgGradX, bgGradY) * 0.42f).toInt()
 
-                val span = if (isHorizonRow) 2 else 4
-                val leftVal = curLuma[y * GRID_W + max(0, x - span)]
-                val rightVal = curLuma[y * GRID_W + min(GRID_W - 1, x + span)]
-                val bilateralContrast = min(abs(curVal - leftVal), abs(curVal - rightVal))
+                val rawFrameDiff = abs(curVal - prevVal)
+                val rawBgDiff = abs(curVal - bgVal)
 
-                if (frameDiff >= minMotionDiff) {
+                val effectiveFrameDiff = max(0, rawFrameDiff - (staticEdgePenalty shr 1))
+                val effectiveBgDiff = max(0, rawBgDiff - staticEdgePenalty)
+
+                if (effectiveFrameDiff >= minMotionDiff) {
                     motionMask[idx] = true
                 }
 
-                // A pixel belongs to a foreground silhouette if:
-                // (a) It stands out from the aligned running background model (bgDiff >= activeBgThresh), OR
-                // (b) It is an actively moving contour with strong bilateral contrast
-                if (
-                    bgDiff >= activeBgThresh ||
-                    (frameDiff >= minMotionDiff + 2 && bilateralContrast >= minEdgeContrast)
-                ) {
-                    fgMask[idx] = true
+                if (effectiveBgDiff >= activeBgThresh) {
+                    // SHADOW & REFLECTION REJECTION (Отсечение затенений и бликов на стенах/шторах/полу):
+                    // If a bright/medium background surface (bgVal >= 55) is merely darkened by 10%..36%
+                    // (or brightened by 8%..25%) WITHOUT changing its RGB color chromaticity (hue/saturation),
+                    // it is a cast shadow or auto-exposure reflection on the wall/curtain/floor, NOT a person!
+                    val isShadowOrGlare = isCastShadowOrGlarePixel(
+                        r = rGrid[idx],
+                        g = gGrid[idx],
+                        b = bGrid[idx],
+                        curY = curVal,
+                        bgR = bgR[alignIdx].roundToInt(),
+                        bgG = bgG[alignIdx].roundToInt(),
+                        bgB = bgB[alignIdx].roundToInt(),
+                        bgY = max(1, bg[alignIdx].roundToInt())
+                    )
+                    if (!isShadowOrGlare) {
+                        fgMask[idx] = true
+                    }
                 }
             }
         }
@@ -549,7 +579,7 @@ class SilhouetteRadarEngine {
                     }
                 }
 
-                if (activePixels >= 3) {
+                if (activePixels >= 4) {
                     initialClusters.add(
                         RawCluster(
                             minX = minX,
@@ -568,9 +598,9 @@ class SilhouetteRadarEngine {
         // Merges fragments of the SAME person separated by stair railings, belts, bags, or shadows
         val mergedClusters = mergeFragmentsOfSamePerson(initialClusters)
 
-        // Step 4: Evaluate Human Silhouette Anatomy & Perspective Rules
+        // Step 4: Evaluate Human Silhouette Anatomy & Anti-Furniture / Anti-Pet Rules
         val candidateDetections = mutableListOf<RawDetection>()
-        val minGridHeightFar = if (farHorizonBoost) 3 else 7
+        val minGridHeightFar = if (farHorizonBoost) 4 else 8
 
         for (cluster in mergedClusters) {
             val minX = cluster.minX
@@ -582,23 +612,22 @@ class SilhouetteRadarEngine {
             val bottomNorm = (maxY + 1).toFloat() / GRID_H.toFloat()
             val bhNorm = bhGrid.toFloat() / GRID_H.toFloat()
 
-            // PERSPECTIVE FLOOR RULE (Anti-Cat / Anti-Pet / Anti-Clutter):
-            // Any object whose bottom is on the near floor (bottomNorm > 0.65) MUST be at least 20 rows tall
-            // (22.2% of frame height). Small silhouettes (3..19 rows) are ONLY allowed in the elevated
-            // distant horizon/midground band (bottomNorm <= 0.65)!
-            val isFarHorizonCandidate = bottomNorm <= 0.65f && minY >= 4 && bhGrid in minGridHeightFar..19
-            val isNearMidHumanCandidate = bhGrid >= 20
+            // PERSPECTIVE FLOOR RULE (Anti-Cat / Anti-Pet / Anti-TV-Legs on Floor):
+            // Any object whose bottom is in the lower/floor zone (bottomNorm > 0.64) MUST be at least 22 rows tall
+            // (24.4% of frame height). Small silhouettes (4..21 rows) are ONLY allowed in the elevated
+            // distant horizon band (bottomNorm <= 0.64)!
+            val isFarHorizonCandidate = bottomNorm <= 0.64f && minY >= 4 && bhGrid in minGridHeightFar..21
+            val isNearMidHumanCandidate = bhGrid >= 22
 
             if (!isFarHorizonCandidate && !isNearMidHumanCandidate) {
                 continue
             }
-            if (isFarHorizonCandidate && !farHorizonBoost && bhGrid < 7) {
+            if (isFarHorizonCandidate && !farHorizonBoost && bhGrid < 8) {
                 continue
             }
 
-            // Require at least leading-edge movement (when a uniform coat moves by 1px/frame, its 1px leading edge
-            // has movingPixels >= max(2, bhGrid / 4))
-            val minMovingPixels = if (isFarHorizonCandidate) 2 else max(4, bhGrid / 4)
+            // Require genuine active movement (at least leading edge of the walking figure)
+            val minMovingPixels = if (isFarHorizonCandidate) 3 else max(5, bhGrid / 4)
             if (cluster.movingPixels < minMovingPixels) continue
 
             val humanScore = evaluateHumanSilhouetteAnatomy(
@@ -612,7 +641,7 @@ class SilhouetteRadarEngine {
                 isFarHorizon = isFarHorizonCandidate
             )
 
-            if (humanScore >= 0.62f) {
+            if (humanScore >= 0.66f) {
                 val bxNorm = (minX.toFloat() / GRID_W).coerceIn(0f, 0.96f)
                 val byNorm = (minY.toFloat() / GRID_H).coerceIn(0f, 0.95f)
                 val bwNorm = (bwGrid.toFloat() / GRID_W).coerceAtMost(1f - bxNorm)
@@ -650,7 +679,7 @@ class SilhouetteRadarEngine {
         val nmsDetections = suppressOverlappingDetections(candidateDetections)
 
         // Update adaptive background model: freeze background inside detected human boxes so slow/standing
-        // people in front of the camera are not absorbed into the background!
+        // people in front of the camera are not absorbed into the background
         val insideHumanBox = BooleanArray(GRID_W * GRID_H)
         for (det in nmsDetections) {
             val x0 = (det.bx * GRID_W).toInt().coerceIn(0, GRID_W - 1)
@@ -670,6 +699,9 @@ class SilhouetteRadarEngine {
                 else -> 0.12f
             }
             bg[i] = bg[i] * (1f - alpha) + curLuma[i].toFloat() * alpha
+            bgR[i] = bgR[i] * (1f - alpha) + rGrid[i].toFloat() * alpha
+            bgG[i] = bgG[i] * (1f - alpha) + gGrid[i].toFloat() * alpha
+            bgB[i] = bgB[i] * (1f - alpha) + bGrid[i].toFloat() * alpha
         }
         prevLumaGrid = curLuma
 
@@ -685,6 +717,36 @@ class SilhouetteRadarEngine {
             farHorizonBoost = farHorizonBoost,
             nextPersonIdProvider = nextPersonIdProvider
         )
+    }
+
+    /**
+     * Detects whether a pixel change is merely a cast shadow (затенение) or lighting glare (блик)
+     * on a wall, window curtain, or floor rather than a physical human object.
+     * Shadows dim luminance by 10%..38% while preserving the background's RGB color balance.
+     */
+    private fun isCastShadowOrGlarePixel(
+        r: Int,
+        g: Int,
+        b: Int,
+        curY: Int,
+        bgR: Int,
+        bgG: Int,
+        bgB: Int,
+        bgY: Int
+    ): Boolean {
+        if (bgY < 52) return false // Dark night background is not a bright wall/curtain shadow
+        val ratio = curY.toFloat() / bgY.toFloat()
+        // Cast shadow dims a wall/curtain/floor to 62%..95% of its brightness; mild glare brightens to 105%..126%
+        val isMildDimOrGlare = (ratio in 0.64f..0.95f) || (ratio in 1.05f..1.25f)
+        if (!isMildDimOrGlare) return false
+
+        // Compare RGB color differences scaled by the brightness ratio:
+        // If the pixel's RGB is simply a scaled version of (bgR, bgG, bgB), it's the same surface under shadow!
+        val expectedR = (bgR * ratio).roundToInt()
+        val expectedG = (bgG * ratio).roundToInt()
+        val expectedB = (bgB * ratio).roundToInt()
+        val chromaResidual = (abs(r - expectedR) + abs(g - expectedG) + abs(b - expectedB)) / 3
+        return chromaResidual <= 9
     }
 
     /**
@@ -719,8 +781,6 @@ class SilhouetteRadarEngine {
                     val combinedH = combinedMaxY - combinedMinY + 1
                     val combinedAspect = combinedW.toFloat() / max(1, combinedH).toFloat()
 
-                    // Merge if vertically stacked (e.g. head + torso + legs across stair railing)
-                    // or overlapping horizontally and forming a valid upright human aspect ratio
                     val maxAllowedGap = if (combinedH >= 28) 9 else 4
                     val shouldMerge =
                         (centerDistX <= maxW * 0.75f + 2f || horizOverlap >= min(aw, bw) * 0.4f) &&
@@ -783,7 +843,6 @@ class SilhouetteRadarEngine {
                 val vertDist = abs(ccy - ecy)
                 val maxH = max(cand.bh, existing.bh)
 
-                // If boxes significantly overlap or are vertically aligned parts of the same person, suppress
                 if (
                     iou >= 0.18f ||
                     containment >= 0.45f ||
@@ -803,7 +862,10 @@ class SilhouetteRadarEngine {
 
     /**
      * Evaluates whether a foreground cluster matches an upright human silhouette (far, mid, or close-up),
-     * while rejecting horizontal quadrupeds (cats/dogs), cars, and boxy furniture.
+     * while rejecting:
+     * - Hollow window frames / open chairs / two-legged TV stands (via Central Vertical Spine check),
+     * - Thin 1D rods / curtain folds / window mullions (via minimum width & contour shape check),
+     * - Horizontal quadrupeds like cats/dogs and boxy furniture (via aspect ratio check).
      */
     private fun evaluateHumanSilhouetteAnatomy(
         fgMask: BooleanArray,
@@ -818,29 +880,52 @@ class SilhouetteRadarEngine {
         val bw = maxX - minX + 1
         val bh = maxY - minY + 1
 
-        // Allow distant silhouettes down to bw=1..2, bh=3..4; and close-up silhouettes up to bh=86, bw=68!
-        val minW = if (isFarHorizon) 1 else 4
-        val minH = if (isFarHorizon) 3 else 20
+        // Reject 1-pixel-thin vertical lines (window mullions, curtain slits, wires, thin TV legs)!
+        // A human silhouette must be at least 2 columns wide in the far horizon and at least 5 columns wide near/mid.
+        val minW = if (isFarHorizon) 2 else 5
+        val minH = if (isFarHorizon) 4 else 22
         if (bw < minW || bh < minH || bh > 87 || bw > 70) return 0f
 
         // 1. Vertical Upright Human Aspect Ratio (width / height):
-        // Standing/walking humans (even in winter coats or carrying a bag) have aspect in 0.14..0.60.
-        // Cats, dogs, cars, and couches are wider (aspect > 0.62) and are rejected!
         val aspect = bw.toFloat() / bh.toFloat()
         val maxAllowedAspect = when {
-            isFarHorizon -> 0.58f
-            bh >= 45 -> 0.62f // Close-up person in winter coat / holding a bag (Screenshot 5)
-            else -> 0.56f
+            isFarHorizon -> 0.56f
+            bh >= 45 -> 0.62f // Close-up person in winter coat / mid-stride
+            else -> 0.55f
         }
-        if (aspect < 0.13f || aspect > maxAllowedAspect) return 0f
+        if (aspect < 0.16f || aspect > maxAllowedAspect) return 0f
 
         val boxArea = max(1, bw * bh)
         val fillRatio = activePixels.toFloat() / boxArea.toFloat()
-        val minFill = if (bh >= 36) 0.16f else 0.22f
-        val maxFill = if (isFarHorizon || bh <= 16) 1.0f else 0.96f
+        val minFill = if (bh >= 36) 0.22f else 0.28f
+        val maxFill = if (isFarHorizon || bh <= 14) 1.0f else 0.95f
         if (fillRatio < minFill || fillRatio > maxFill) return 0f
 
-        // 2. Distant Horizon Human Check (bh in 3..11 rows, e.g., people walking far away under streetlights)
+        // 2. Central Vertical Spine Check (Anti-Window-Frame & Anti-TV-Legs Filter):
+        // Window frames, open chairs, and two-legged TV stands have foreground on the left/right edges
+        // or top/bottom edges, but an EMPTY center! A human torso/head has a solid central vertical spine!
+        val spineLeft = minX + (bw * 0.30f).toInt()
+        val spineRight = max(spineLeft, maxX - (bw * 0.30f).toInt())
+        var spineActiveRows = 0
+        val torsoStartRow = minY + (bh * 0.12f).toInt()
+        val torsoEndRow = minY + (bh * 0.78f).toInt()
+        val totalSpineRows = max(1, torsoEndRow - torsoStartRow + 1)
+
+        for (y in torsoStartRow..min(maxY, torsoEndRow)) {
+            var hasSpinePx = false
+            for (x in spineLeft..spineRight) {
+                if (fgMask[y * GRID_W + x]) {
+                    hasSpinePx = true
+                    break
+                }
+            }
+            if (hasSpinePx) spineActiveRows++
+        }
+        val spineContinuity = spineActiveRows.toFloat() / totalSpineRows.toFloat()
+        // If the central vertical axis of the object is hollow (< 62% filled), it's a frame, TV stand, or chair!
+        if (spineContinuity < 0.62f) return 0f
+
+        // 3. Distant Horizon Human Check (bh in 4..11 rows)
         if (isFarHorizon && bh <= 11) {
             var activeRows = 0
             var contrastSum = 0
@@ -860,15 +945,15 @@ class SilhouetteRadarEngine {
                 contrastSum += max(abs(centerLuma - leftBg), abs(centerLuma - rightBg))
             }
             val avgContrast = contrastSum / max(1, bh)
-            val minRowsRequired = max(2, bh - 2)
-            return if (activeRows >= minRowsRequired && avgContrast >= 9) {
+            val minRowsRequired = max(3, bh - 1)
+            return if (activeRows >= minRowsRequired && avgContrast >= 11 && spineContinuity >= 0.72f) {
                 0.78f
             } else {
                 0f
             }
         }
 
-        // 3. Mid-Range & Close-Up 4-Band Anatomical Check (Head - Shoulders - Torso/Hips - Legs)
+        // 4. Mid-Range & Close-Up 4-Band Anatomical Check (Head - Shoulders - Torso/Hips - Legs)
         val yHeadEnd = minY + max(1, (bh * 0.24f).toInt())
         val yShoulderEnd = minY + max(2, (bh * 0.54f).toInt())
         val yHipEnd = minY + max(3, (bh * 0.78f).toInt())
@@ -903,25 +988,29 @@ class SilhouetteRadarEngine {
         val (hipSpan, hipCx, hipPx) = measureBand(yShoulderEnd, yHipEnd - 1)
         val (legSpan, legCx, legPx) = measureBand(yHipEnd, maxY)
 
-        // Allow at least 3 of the 4 vertical zones to have active pixels (in case stair railing or dark pants
-        // briefly occlude one zone), provided upper and lower halves are both present!
         val nonEmptyBands = (if (headPx > 0) 1 else 0) +
             (if (shoulderPx > 0) 1 else 0) +
             (if (hipPx > 0) 1 else 0) +
             (if (legPx > 0) 1 else 0)
         if (nonEmptyBands < 3 || (headPx + shoulderPx == 0) || (hipPx + legPx == 0)) return 0f
 
+        // Anti-Curtain-Fold / Anti-Pillar / Anti-Window-Frame Taper Check:
+        // A human head is narrower than the shoulders/chest! A straight vertical curtain fold, door post,
+        // or window frame has headSpan >= shoulderSpan.
+        if (bh >= 14 && headPx > 0 && shoulderPx > 0 && headSpan > shoulderSpan * 0.95f) return 0f
+        if (shoulderSpan < bw * 0.42f) return 0f
+
         // Verify vertical spine alignment for present bands
-        val maxSpineDeviation = bw * 0.42f + 2f
+        val maxSpineDeviation = bw * 0.38f + 1.5f
         if (headPx > 0 && shoulderPx > 0 && abs(headCx - shoulderCx) > maxSpineDeviation) return 0f
         if (shoulderPx > 0 && hipPx > 0 && abs(shoulderCx - hipCx) > maxSpineDeviation) return 0f
-        if (hipPx > 0 && legPx > 0 && abs(hipCx - legCx) > maxSpineDeviation * 1.2f) return 0f
+        if (hipPx > 0 && legPx > 0 && abs(hipCx - legCx) > maxSpineDeviation * 1.15f) return 0f
 
         var score = 0.70f
-        if (headPx > 0 && shoulderPx > 0 && headSpan <= shoulderSpan * 0.96f) score += 0.10f
-        if (aspect in 0.22f..0.52f) score += 0.10f
-        if (nonEmptyBands == 4) score += 0.06f
-        if (legSpan <= max(shoulderSpan, hipSpan) * 1.05f) score += 0.04f
+        if (headPx > 0 && shoulderPx > 0 && headSpan <= shoulderSpan * 0.85f) score += 0.12f
+        if (aspect in 0.22f..0.52f) score += 0.08f
+        if (nonEmptyBands == 4) score += 0.05f
+        if (legSpan <= max(shoulderSpan, hipSpan) * 1.02f) score += 0.04f
         return score.coerceAtMost(0.98f)
     }
 
@@ -940,7 +1029,6 @@ class SilhouetteRadarEngine {
         val now = System.currentTimeMillis()
         val maxAgeMs = memoryMinutes * 60_000L
 
-        // Merge external Room memory with our synchronous internalMemoryCache
         val mergedById = linkedMapOf<Int, SilhouetteMemoryEntity>()
         for (item in currentMemory) {
             if (now - item.lastSeenTs <= maxAgeMs) {
@@ -959,8 +1047,8 @@ class SilhouetteRadarEngine {
         internalMemoryCache.clear()
         internalMemoryCache.addAll(validMemory)
 
-        // Keep short-term scene continuity zones for 22 seconds
-        recentCountZones.removeAll { now - it.timestamp > 22_000L }
+        // Keep short-term scene continuity zones for 45 seconds (prevents re-counting 1 person pacing in a room)
+        recentCountZones.removeAll { now - it.timestamp > 45_000L }
 
         val newlyCounted = mutableListOf<SilhouetteMemoryEntity>()
         val updatedRepeats = mutableListOf<SilhouetteMemoryEntity>()
@@ -977,10 +1065,9 @@ class SilhouetteRadarEngine {
             for (track in activeTracks) {
                 if (track.matchedThisFrame) continue
                 val dist = hypot(cx - track.cx, cy - track.cy)
-                // Allow larger step distance for close-up pedestrians (e.g., walking up stairs)
                 val maxAllowedDist = when {
                     det.descriptor.isFarHorizon -> 0.18f
-                    det.bh >= 0.35f || track.bh >= 0.35f -> 0.36f
+                    det.bh >= 0.35f || track.bh >= 0.35f -> 0.38f
                     else -> 0.28f
                 }
                 if (dist > maxAllowedDist) continue
@@ -1026,12 +1113,11 @@ class SilhouetteRadarEngine {
                 bestTrack.by = det.by
                 bestTrack.bw = det.bw
                 bestTrack.bh = det.bh
-                bestTrack.descriptor = blendDescriptors(bestTrack.descriptor, det.descriptor, 0.22f)
+                bestTrack.descriptor = blendDescriptors(bestTrack.descriptor, det.descriptor, 0.20f)
                 bestTrack.isFarHorizon = det.descriptor.isFarHorizon
                 bestTrack.humanConfidence = max(bestTrack.humanConfidence, det.confidence)
                 bestTrack.hits += 1
 
-                // Keep active spatial zone updated while person remains in view
                 val activePersonId = bestTrack.countedPersonId ?: bestTrack.matchedKnownId
                 if (activePersonId != null) {
                     recentCountZones.find { it.personId == activePersonId }?.let { zone ->
@@ -1039,27 +1125,36 @@ class SilhouetteRadarEngine {
                         zone.cy = cy
                         zone.bw = det.bw
                         zone.bh = det.bh
+                        zone.descriptor = bestTrack.descriptor
                         zone.timestamp = now
                     }
                 }
 
-                // Qualification logic for Far, Mid, and Close-Up Humans:
-                // Counts people walking across the road in the distance, walking toward the camera up stairs,
-                // or passing close by, without requiring them to traverse the entire width of the screen!
+                // STRICT WALKING TRAJECTORY VERIFICATION:
+                // Stationary objects (TV legs, window frames, curtains, shadows) may jitter in place
+                // (low netDisplacement or low pathLinearity) and must NEVER qualify to count!
                 val netDisplacement = hypot(cx - bestTrack.startCx, cy - bestTrack.startCy)
                 val scaleChange = abs(det.bh - bestTrack.startBh)
+                val pathLinearity = if (bestTrack.totalPathDist > 0.001f) {
+                    netDisplacement / bestTrack.totalPathDist
+                } else {
+                    0f
+                }
 
                 val qualifiesToCount = if (isSimulation) {
                     bestTrack.hits >= 2
                 } else if (bestTrack.isFarHorizon) {
-                    // Distant pedestrians: 3 frames + small movement along the road/ramp
-                    (bestTrack.hits >= 3 && (netDisplacement >= 0.010f || bestTrack.totalPathDist >= 0.015f)) ||
-                        (bestTrack.hits >= 4 && bestTrack.humanConfidence >= 0.74f)
+                    // Distant pedestrians must genuinely move along the road/walkway with directional linearity
+                    bestTrack.hits >= 3 &&
+                        netDisplacement >= 0.012f &&
+                        pathLinearity >= 0.48f
                 } else {
-                    // Near & mid-range pedestrians:
-                    // Either lateral movement, approaching/receding scale change (stairs!), or clear 3-frame human figure
-                    (bestTrack.hits >= 3 && (netDisplacement >= 0.018f || scaleChange >= 0.018f || bestTrack.totalPathDist >= 0.024f)) ||
-                        (bestTrack.hits >= 3 && bestTrack.humanConfidence >= 0.74f)
+                    // Near & mid-range pedestrians must either walk laterally (netDisplacement >= 0.018f)
+                    // or walk toward/away from camera (scaleChange >= 0.025f with netDisplacement >= 0.010f)
+                    // with consistent directional linearity (rejecting oscillating curtains/shadows!)
+                    bestTrack.hits >= 3 &&
+                        pathLinearity >= 0.46f &&
+                        (netDisplacement >= 0.018f || (scaleChange >= 0.025f && netDisplacement >= 0.010f))
                 }
 
                 if (
@@ -1081,7 +1176,6 @@ class SilhouetteRadarEngine {
                     )
                 }
             } else {
-                // Check if this new track is a continuation of a person currently/recently in the scene
                 val alreadyActiveIds = activeTracks
                     .filter { it.missedFrames <= 2 }
                     .mapNotNull { it.countedPersonId ?: it.matchedKnownId }
@@ -1147,8 +1241,10 @@ class SilhouetteRadarEngine {
     }
 
     /**
-     * Short-term scene continuity matcher: prevents the same person walking up stairs or standing in view
-     * from ever being counted twice (+2/+3) if their track briefly resets or shifts.
+     * Short-term scene & room continuity matcher:
+     * 1. Prevents the same person walking up stairs or standing in view from ever being counted twice (+2/+3).
+     * 2. If a single person is pacing back and forth in a room (re-appearing within 45s in the same scale band
+     *    with compatible core clothing colors while no other person is active), locks onto their existing ID!
      */
     private fun findMatchingRecentZone(
         cx: Float,
@@ -1162,24 +1258,38 @@ class SilhouetteRadarEngine {
         for (zone in recentCountZones) {
             if (zone.personId in excludeActiveIds) continue
             val ageMs = now - zone.timestamp
-            if (ageMs > 18_000L) continue
+            if (ageMs > 45_000L) continue
             val dist = hypot(cx - zone.cx, cy - zone.cy)
             val maxRadius = when {
-                desc.isFarHorizon && zone.isFarHorizon -> 0.14f
-                bh >= 0.30f || zone.bh >= 0.30f -> 0.38f // Large foreground person on stairs / close-up
-                else -> 0.24f
+                desc.isFarHorizon && zone.isFarHorizon -> 0.16f
+                bh >= 0.30f || zone.bh >= 0.30f -> 0.45f
+                else -> 0.28f
             }
-            if (dist <= maxRadius) {
-                val sim = computeBiometricAndClothingSimilarity(desc, zone.descriptor)
-                // Within the same spatial zone during the first 6 seconds, or with matching appearance up to 18s
-                if ((ageMs < 5_000L && dist <= maxRadius * 0.75f) || sim >= 0.68f) {
-                    zone.cx = cx
-                    zone.cy = cy
-                    zone.bw = bw
-                    zone.bh = bh
-                    zone.timestamp = now
-                    return zone
-                }
+            val sim = computeBiometricAndClothingSimilarity(desc, zone.descriptor)
+
+            // Case A: Nearby continuation of the same track
+            if (dist <= maxRadius && ((ageMs < 5_000L && dist <= maxRadius * 0.75f) || sim >= 0.65f)) {
+                zone.cx = cx
+                zone.cy = cy
+                zone.bw = bw
+                zone.bh = bh
+                zone.timestamp = now
+                return zone
+            }
+
+            // Case B: Single person pacing back and forth across a room (same distance band & similar clothing tone)
+            if (
+                excludeActiveIds.isEmpty() &&
+                desc.isFarHorizon == zone.isFarHorizon &&
+                abs(bh - zone.bh) <= 0.28f &&
+                sim >= 0.72f
+            ) {
+                zone.cx = cx
+                zone.cy = cy
+                zone.bw = bw
+                zone.bh = bh
+                zone.timestamp = now
+                return zone
             }
         }
         return null
@@ -1200,15 +1310,29 @@ class SilhouetteRadarEngine {
             .mapNotNull { it.countedPersonId ?: it.matchedKnownId }
             .toSet()
 
-        // 1. Check short-term scene continuity lock first (prevents +3 surges on a single person!)
+        // 1. Check short-term scene & room continuity lock first
         val zoneHit = findMatchingRecentZone(cx, cy, track.bw, track.bh, track.descriptor, now, alreadyActiveIds)
         if (zoneHit != null) {
             track.matchedKnownId = zoneHit.personId
-            track.isRepeatNotified = true
+            if (!track.isRepeatNotified) {
+                track.isRepeatNotified = true
+                val memItem = validMemory.find { it.personId == zoneHit.personId }
+                if (memItem != null && now - memItem.lastSeenTs >= 6_000L) {
+                    val updated = memItem.copy(
+                        lastSeenTs = now,
+                        repeatHits = memItem.repeatHits + 1
+                    )
+                    val idx = validMemory.indexOfFirst { it.personId == memItem.personId }
+                    if (idx >= 0) validMemory[idx] = updated
+                    val cacheIdx = internalMemoryCache.indexOfFirst { it.personId == memItem.personId }
+                    if (cacheIdx >= 0) internalMemoryCache[cacheIdx] = updated
+                    updatedRepeats.add(updated)
+                }
+            }
             return
         }
 
-        // 2. Check 90-minute Re-ID memory bank (distinguishes different people in similar clothes vs true repeats)
+        // 2. Check 90-minute Re-ID memory bank
         val match = findInMemory(track.descriptor, validMemory, now, alreadyActiveIds)
         if (match != null) {
             track.matchedKnownId = match.personId
@@ -1226,9 +1350,7 @@ class SilhouetteRadarEngine {
             )
             if (!track.isRepeatNotified) {
                 track.isRepeatNotified = true
-                // Only increment repeat counter if the person re-entered after at least 15 seconds
-                // (so brief track re-acquisition while walking doesn't inflate repeat count)
-                if (now - match.lastSeenTs >= 15_000L) {
+                if (now - match.lastSeenTs >= 6_000L) {
                     val updated = match.copy(
                         lastSeenTs = now,
                         repeatHits = match.repeatHits + 1
@@ -1263,14 +1385,11 @@ class SilhouetteRadarEngine {
     }
 
     /**
-     * Extracts a 64-dimensional 5-Zone Biometric Figure + Multi-Part Clothing Descriptor:
-     * - Zone 1 (0..18%): Head / Hair / Hood / Hat
-     * - Zone 2 (18..38%): Shoulders / Chest / Scarf / Collar
-     * - Zone 3 (38..58%): Mid-Torso / Waist / Carried Bag (e.g. orange bag) / Hands
-     * - Zone 4 (58..78%): Hips / Coat Hem / Upper Legs
-     * - Zone 5 (78..100%): Lower Legs / Footwear
-     * Plus body figure geometry (aspectRatio, shoulderToHipRatio, headToShoulderRatio, accessory accent).
-     * This ensures two different people in dark jackets are NOT confused, while the same person is remembered!
+     * Extracts a Pose-Invariant 5-Zone Biometric Figure + Core-Torso Clothing Descriptor.
+     * - Samples ONLY the inner 50% horizontal core of the silhouette where fgMask == true so background curtains/walls
+     *   between swinging arms or wide-striding legs never contaminate the clothing colors!
+     * - Computes coreTorsoAspect from the chest/waist span rather than raw bounding-box width so a person's build
+     *   remains invariant whether they stand straight or take a wide stride!
      */
     private fun extractDescriptorFromRgbGrid(
         rGrid: IntArray,
@@ -1293,6 +1412,10 @@ class SilhouetteRadarEngine {
         val z3End = minY + (bh * 0.58f).toInt()
         val z4End = minY + (bh * 0.78f).toInt()
 
+        // Inner core horizontal bounds (excludes swinging arms and background gaps at the left/right box margins)
+        val coreLeft = minX + (bw * 0.20f).toInt()
+        val coreRight = max(coreLeft, maxX - (bw * 0.20f).toInt())
+
         var uR = 0; var uG = 0; var uB = 0; var uCount = 0
         var mR = 0; var mG = 0; var mB = 0; var mCount = 0
         var lR = 0; var lG = 0; var lB = 0; var lCount = 0
@@ -1301,18 +1424,19 @@ class SilhouetteRadarEngine {
 
         var shoulderWidthSum = 0f; var shoulderRows = 0
         var hipWidthSum = 0f; var hipRows = 0
+        val torsoSpans = mutableListOf<Int>()
 
         for (y in minY..maxY) {
             var rowFirstX = -1
             var rowLastX = -1
             for (x in minX..maxX) {
                 val idx = y * GRID_W + x
-                // Sample foreground pixels (or central torso spine if fgMask is sparse in uniform dark clothing)
-                val isCenterSpine = x in (minX + bw / 4)..(maxX - bw / 4)
-                if (!fgMask[idx] && !isCenterSpine) continue
-
+                if (!fgMask[idx]) continue
                 if (rowFirstX == -1) rowFirstX = x
                 rowLastX = x
+
+                // For color histograms, restrict to inner core (or full width for tiny far-horizon figures)
+                if (!isFarHorizon && bw >= 6 && (x < coreLeft || x > coreRight)) continue
 
                 val r = rGrid[idx].coerceIn(0, 255)
                 val g = gGrid[idx].coerceIn(0, 255)
@@ -1356,12 +1480,15 @@ class SilhouetteRadarEngine {
                 }
             }
             if (rowFirstX != -1) {
-                val span = (rowLastX - rowFirstX + 1).toFloat()
+                val span = rowLastX - rowFirstX + 1
+                if (y in (z1End + 1)..z3End) {
+                    torsoSpans.add(span)
+                }
                 if (y in (z1End + 1)..z2End) {
-                    shoulderWidthSum += span
+                    shoulderWidthSum += span.toFloat()
                     shoulderRows++
                 } else if (y in (z3End + 1)..z4End) {
-                    hipWidthSum += span
+                    hipWidthSum += span.toFloat()
                     hipRows++
                 }
             }
@@ -1387,18 +1514,25 @@ class SilhouetteRadarEngine {
 
         val headLuma = if (headCount > 0) headLumaSum / headCount else 96
         val shoeLuma = if (shoeCount > 0) shoeLumaSum / shoeCount else 64
-        val aspect = (bw.toFloat() / bh.toFloat()).coerceIn(0.14f, 0.75f)
-        val avgShoulder = if (shoulderRows > 0) shoulderWidthSum / shoulderRows else bw * 0.75f
-        val avgHip = if (hipRows > 0) hipWidthSum / hipRows else bw * 0.68f
+
+        // Pose-invariant core torso aspect ratio (median chest/waist width divided by height)
+        val medianTorsoW = if (torsoSpans.isNotEmpty()) {
+            torsoSpans.sorted()[torsoSpans.size / 2].toFloat()
+        } else {
+            bw.toFloat() * 0.75f
+        }
+        val coreTorsoAspect = (medianTorsoW / bh.toFloat()).coerceIn(0.14f, 0.65f)
+
+        val avgShoulder = if (shoulderRows > 0) shoulderWidthSum / shoulderRows else medianTorsoW
+        val avgHip = if (hipRows > 0) hipWidthSum / hipRows else medianTorsoW * 0.92f
         val shoulderToHip = (avgShoulder / max(1f, avgHip)).coerceIn(0.65f, 1.65f)
 
-        // Encode biometric figure geometry + 5-zone color accents in slots 56..63
         vec[56] = headLuma / 255f
         vec[57] = shoeLuma / 255f
         vec[58] = mR / 255f
         vec[59] = mG / 255f
         vec[60] = mB / 255f
-        vec[61] = aspect * 1.4f
+        vec[61] = coreTorsoAspect * 1.4f
         vec[62] = (shoulderToHip - 0.65f)
         vec[63] = if (isFarHorizon) 0.75f else 0.35f
 
@@ -1419,7 +1553,7 @@ class SilhouetteRadarEngine {
             midAccentB = mB,
             headLuma = headLuma,
             shoeLuma = shoeLuma,
-            aspectRatio = aspect,
+            aspectRatio = coreTorsoAspect,
             shoulderToHipRatio = shoulderToHip,
             isFarHorizon = isFarHorizon
         )
@@ -1470,16 +1604,16 @@ class SilhouetteRadarEngine {
         val upperDiff = (abs(a.upperR - b.upperR) + abs(a.upperG - b.upperG) + abs(a.upperB - b.upperB)) / 3f
         val lowerDiff = (abs(a.lowerR - b.lowerR) + abs(a.lowerG - b.lowerG) + abs(a.lowerB - b.lowerB)) / 3f
         val midDiff = (abs(a.midAccentR - b.midAccentR) + abs(a.midAccentG - b.midAccentG) + abs(a.midAccentB - b.midAccentB)) / 3f
-        val colorSim = (1f - ((upperDiff * 0.4f + lowerDiff * 0.35f + midDiff * 0.25f) / 140f)).coerceIn(0f, 1f)
-        val figureDiff = abs(a.aspectRatio - b.aspectRatio) * 2.5f + abs(a.shoulderToHipRatio - b.shoulderToHipRatio) * 0.8f
+        val colorSim = (1f - ((upperDiff * 0.42f + lowerDiff * 0.38f + midDiff * 0.20f) / 135f)).coerceIn(0f, 1f)
+        val figureDiff = abs(a.aspectRatio - b.aspectRatio) * 1.8f + abs(a.shoulderToHipRatio - b.shoulderToHipRatio) * 0.5f
         val figureSim = (1f - figureDiff).coerceIn(0f, 1f)
-        return (vecSim * 0.45f + colorSim * 0.35f + figureSim * 0.20f).coerceIn(0f, 1f)
+        return (vecSim * 0.42f + colorSim * 0.40f + figureSim * 0.18f).coerceIn(0f, 1f)
     }
 
     /**
-     * Searches the 90-minute Re-ID memory bank.
-     * Uses a strict multi-feature threshold (clothing zones + body figure aspect ratio) so two different
-     * pedestrians wearing similar dark jackets are NOT confused, while the same person is recognized.
+     * Searches the 90-minute Re-ID memory bank using Pose-Invariant Core-Torso Aspect + 5-Zone Clothing signature.
+     * - Tolerates leg stride variations when the same person walks back and forth in a room.
+     * - Distinguishes different people via core torso build, upper/lower/mid-bag clothing colors, and simultaneous track exclusion.
      */
     private fun findInMemory(
         desc: SilhouetteDescriptor,
@@ -1499,26 +1633,21 @@ class SilhouetteRadarEngine {
             val (mlR, mlG, mlB) = hexToRgb(entry.lowerHex)
             val upperDiff = (abs(desc.upperR - muR) + abs(desc.upperG - muG) + abs(desc.upperB - muB)) / 3f
             val lowerDiff = (abs(desc.lowerR - mlR) + abs(desc.lowerG - mlG) + abs(desc.lowerB - mlB)) / 3f
-            val colorSim = (1f - ((upperDiff + lowerDiff) / 150f)).coerceIn(0f, 1f)
+            val colorSim = (1f - ((upperDiff + lowerDiff) / 145f)).coerceIn(0f, 1f)
 
-            // Compare body build (aspectRatio) so a slim person and a broad person in dark clothes are never confused!
             val aspectDiff = abs(desc.aspectRatio - entry.aspectRatio)
-            val figureSim = (1f - (aspectDiff / 0.16f)).coerceIn(0f, 1f)
+            val figureSim = (1f - (aspectDiff / 0.22f)).coerceIn(0f, 1f)
 
-            // Also check mid-torso/bag accent encoded in vector[58..60] if both vectors have 64 elements
             val midAccentDiff = abs(desc.vector[58] - memVec[58]) +
                 abs(desc.vector[59] - memVec[59]) +
                 abs(desc.vector[60] - memVec[60])
-            val accentPenalty = if (midAccentDiff > 0.14f) 0.12f else 0f
+            val accentPenalty = if (midAccentDiff > 0.15f) 0.12f else 0f
 
-            val combined = (vecSim * 0.50f + colorSim * 0.30f + figureSim * 0.20f) - accentPenalty
+            val combined = (vecSim * 0.45f + colorSim * 0.37f + figureSim * 0.18f) - accentPenalty
 
-            // If seen within the last 15 seconds, allow slightly more forgiving match (0.80f) for continuity;
-            // After 15 seconds, require strict match (0.87f) + close body figure proportions (aspectDiff <= 0.065f)
-            // so another pedestrian in similar dark clothes is counted as a NEW person (+1)!
             val ageMs = now - entry.lastSeenTs
-            val requiredThreshold = if (ageMs < 15_000L) 0.80f else 0.87f
-            val figureCompatible = if (ageMs < 15_000L) aspectDiff <= 0.10f else aspectDiff <= 0.065f
+            val requiredThreshold = if (ageMs < 45_000L) 0.76f else 0.84f
+            val figureCompatible = if (ageMs < 45_000L) aspectDiff <= 0.16f else aspectDiff <= 0.09f
 
             if (figureCompatible && combined >= requiredThreshold && combined > bestScore) {
                 bestScore = combined

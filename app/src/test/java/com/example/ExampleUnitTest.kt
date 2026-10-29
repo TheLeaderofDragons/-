@@ -186,4 +186,114 @@ class ExampleUnitTest {
         // Exactly 2 people (1 in the distance + 1 on the stairs, never +3 for the stair fragments!)
         assertEquals(2, totalCounted)
     }
+
+    @Test
+    fun silhouetteRadar_ignoresShadowsWindowFramesTvLegsAndDeduplicatesSingleRoomWalker() {
+        val engine = SilhouetteRadarEngine()
+        val gw = SilhouetteRadarEngine.GRID_W
+        val gh = SilhouetteRadarEngine.GRID_H
+        val memory = mutableListOf<SilhouetteMemoryEntity>()
+        var nextId = 1
+        var totalCounted = 0
+
+        fun buildLivingRoomBackground(): Triple<IntArray, IntArray, IntArray> {
+            val r = IntArray(gw * gh) { 195 }
+            val g = IntArray(gw * gh) { 192 }
+            val b = IntArray(gw * gh) { 188 }
+            // Window frame on left (x=18..34, y=14..52) - hollow frame
+            for (y in 14..52) {
+                for (x in 18..34) {
+                    if (y in 14..16 || y in 50..52 || x in 18..20 || x in 32..34) {
+                        val idx = y * gw + x
+                        r[idx] = 80
+                        g[idx] = 80
+                        b[idx] = 85
+                    }
+                }
+            }
+            // TV stand legs on right (x=115..131, y=54..70) - two outer legs with empty middle
+            for (y in 54..70) {
+                for (x in listOf(115, 116, 130, 131)) {
+                    val idx = y * gw + x
+                    r[idx] = 35
+                    g[idx] = 35
+                    b[idx] = 40
+                }
+            }
+            return Triple(r, g, b)
+        }
+
+        // Frame 0: initialize living room background
+        val (bgR, bgG, bgB) = buildLivingRoomBackground()
+        engine.analyzeCameraRgbGrid(
+            rGrid = bgR,
+            gGrid = bgG,
+            bGrid = bgB,
+            sensitivity = 85,
+            farHorizonBoost = true,
+            stepFilterEnabled = true,
+            stationaryLineMode = false,
+            lineVertical = true,
+            linePos = 0.5f,
+            memoryMinutes = 90,
+            currentMemory = memory,
+            nextPersonIdProvider = { nextId++ }
+        )
+
+        // Frames 1..14:
+        // - Cast shadow dims wall area (x=40..54, y=20..65) by 20% while keeping chromaticity
+        // - 1 person in dark shirt/pants walks right (frames 1..7) and then walks back left with wide stride (frames 8..14)
+        for (frame in 1..14) {
+            val (r, g, b) = buildLivingRoomBackground()
+
+            // Moving cast shadow on wall/curtain (20% darkening, same color ratio)
+            val shadowX = 36 + frame
+            for (y in 20..64) {
+                for (x in shadowX..(shadowX + 10)) {
+                    val idx = y * gw + x
+                    r[idx] = (r[idx] * 0.80f).toInt()
+                    g[idx] = (g[idx] * 0.80f).toInt()
+                    b[idx] = (b[idx] * 0.80f).toInt()
+                }
+            }
+
+            // Single person walking right then left across the living room
+            val personX = if (frame <= 7) 58 + frame * 3 else 79 - (frame - 7) * 3
+            val strideExtra = if (frame % 2 == 0) 3 else 0 // Wide stride vs narrow stance
+            for (y in 22..68) {
+                val halfW = when {
+                    y < 30 -> 3 // Head (narrower than shoulders)
+                    y < 50 -> 5 // Torso/shoulders
+                    else -> 5 + strideExtra // Legs in wide stride
+                }
+                for (x in (personX - halfW)..(personX + halfW)) {
+                    val idx = y * gw + x
+                    r[idx] = 28
+                    g[idx] = 32
+                    b[idx] = 38
+                }
+            }
+
+            val res = engine.analyzeCameraRgbGrid(
+                rGrid = r,
+                gGrid = g,
+                bGrid = b,
+                sensitivity = 85,
+                farHorizonBoost = true,
+                stepFilterEnabled = true,
+                stationaryLineMode = false,
+                lineVertical = true,
+                linePos = 0.5f,
+                memoryMinutes = 90,
+                currentMemory = memory,
+                nextPersonIdProvider = { nextId++ }
+            )
+            memory.addAll(res.newlyCounted)
+            totalCounted += res.newlyCounted.size
+        }
+
+        // Only the 1 real person should be counted once (+1), never the shadow, window frame, or TV legs, and never +6 on turnaround
+        assertEquals(1, totalCounted)
+    }
 }
+
